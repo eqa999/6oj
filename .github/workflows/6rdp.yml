@@ -10,30 +10,52 @@ jobs:
     steps:
     - name: Install Tailscale
       run: |
-        # Use the official latest installer URL
-        $installerUrl = "https://pkgs.tailscale.com/stable/win64/tailscale-installer.exe"
-        Invoke-WebRequest -Uri $installerUrl -OutFile tailscale-installer.exe
-        Start-Process -FilePath ".\tailscale-installer.exe" -ArgumentList "/S" -Wait
-        Remove-Item tailscale-installer.exe
-        # Tailscale installs to Program Files, but we need to find the exact path
-        $tailscalePath = Get-ChildItem -Path "C:\Program Files\Tailscale" -Recurse -Filter "tailscale.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $tailscalePath) {
-          Write-Error "Tailscale.exe not found after installation"
+        # الرابط الصحيح لأحدث إصدار (تم التحديث)
+        $installerUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-full-1.98.8.exe"
+        Write-Output "Downloading Tailscale from $installerUrl"
+        Invoke-WebRequest -Uri $installerUrl -OutFile tailscale-installer.exe -UseBasicParsing
+        
+        if (-not (Test-Path tailscale-installer.exe)) {
+          Write-Error "Download failed"
           exit 1
         }
-        Write-Output "Tailscale installed at: $($tailscalePath.FullName)"
-        echo "TAILSCALE_EXE=$($tailscalePath.FullName)" >> $env:GITHUB_ENV
+        
+        Write-Output "Installing Tailscale silently..."
+        Start-Process -FilePath ".\tailscale-installer.exe" -ArgumentList "/S" -Wait
+        Remove-Item tailscale-installer.exe
+
+        # البحث عن ملف tailscale.exe بعد التثبيت
+        $possiblePaths = @(
+          "C:\Program Files\Tailscale\Tailscale.exe",
+          "C:\Program Files (x86)\Tailscale\Tailscale.exe"
+        )
+        $tailscaleExe = $null
+        foreach ($p in $possiblePaths) {
+          if (Test-Path $p) {
+            $tailscaleExe = $p
+            break
+          }
+        }
+        
+        if (-not $tailscaleExe) {
+          Write-Error "tailscale.exe not found after installation"
+          exit 1
+        }
+        
+        Write-Output "Found Tailscale at: $tailscaleExe"
+        echo "TAILSCALE_EXE=$tailscaleExe" >> $env:GITHUB_ENV
 
     - name: Authenticate and Connect Tailscale
       run: |
         $ErrorActionPreference = "Stop"
         Start-Sleep -Seconds 10
-        $tailscaleExe = $env:TAILSCALE_EXE
-        & $tailscaleExe up --auth-key "tskey-auth-kiNvF8Utn621CNTRL-e24cbr9FeP8YFv8XQK9AP8VKxf4KXPRYg" --hostname "github-rdp"
+        $exe = $env:TAILSCALE_EXE
+        Write-Output "Using Tailscale: $exe"
+        & $exe up --auth-key "tskey-auth-kiNvF8Utn621CNTRL-e24cbr9FeP8YFv8XQK9AP8VKxf4KXPRYg" --hostname "github-rdp"
         Start-Sleep -Seconds 5
-        $tailscaleIP = & $tailscaleExe ip -4
-        Write-Output "Tailscale IP: $tailscaleIP"
-        echo "TAILSCALE_IP=$tailscaleIP" >> $env:GITHUB_ENV
+        $ip = & $exe ip -4
+        Write-Output "Tailscale IP: $ip"
+        echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
 
     - name: Enable RDP and Firewall
       run: |
@@ -48,11 +70,11 @@ jobs:
 
     - name: Display Connection Details
       run: |
-        $tailscaleIP = $env:TAILSCALE_IP
+        $ip = $env:TAILSCALE_IP
         Write-Output "============================================"
         Write-Output "||     ✅ RDP CONNECTION DETAILS         ||"
         Write-Output "============================================"
-        Write-Output "Address: $tailscaleIP:3389"
+        Write-Output "Address: $ip:3389"
         Write-Output "Hostname: github-rdp"
         Write-Output "Username: kamel007"
         Write-Output "Password: Kamel@123"
@@ -61,7 +83,7 @@ jobs:
         Write-Output "1. Install Tailscale on your local machine"
         Write-Output "2. Sign in with the same Tailscale account"
         Write-Output "3. Press Win + R, type 'mstsc' and hit Enter"
-        Write-Output "4. Connect to: $tailscaleIP:3389"
+        Write-Output "4. Connect to: $ip:3389"
         Write-Output "5. Use credentials above"
         Write-Output "============================================"
 
@@ -75,10 +97,9 @@ jobs:
     - name: Cleanup Tailscale
       if: always()
       run: |
-        $tailscaleExe = $env:TAILSCALE_EXE
-        if ($tailscaleExe -and (Test-Path $tailscaleExe)) {
-          & $tailscaleExe down
+        $exe = $env:TAILSCALE_EXE
+        if ($exe -and (Test-Path $exe)) {
+          & $exe down
         }
-        # Also try to kill processes by name
         Get-Process -Name "tailscale" -ErrorAction SilentlyContinue | Stop-Process -Force
         Get-Process -Name "tailscaled" -ErrorAction SilentlyContinue | Stop-Process -Force
